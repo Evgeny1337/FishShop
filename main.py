@@ -5,7 +5,7 @@ from telegram.ext import Filters, Updater, CallbackQueryHandler, CommandHandler,
 from dotenv import load_dotenv
 import strapi
 
-_database = None
+DATABASE = None
 
 
 def create_product_text(products):
@@ -43,22 +43,24 @@ def create_cart_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_or_create_cart(tg_id):
-    cart = strapi.get_cart(tg_id)
-    if not cart:
-        cart = strapi.create_cart(tg_id)['data']
+def create_cart(tg_id):
+    cart = strapi.create_cart(tg_id)['data']
     return cart
 
 
 def get_cart_products(tg_id):
-    cart = get_or_create_cart(tg_id)
+    cart = strapi.get_cart(tg_id)
+    if not cart:
+        cart = create_cart(tg_id)
     cart_id = cart['documentId']
     return strapi.get_cart_products(cart_id)
 
 
 def put_product_in_basket(update, product_id):
     tg_id = update.chat_id
-    cart = get_or_create_cart(tg_id)
+    cart = strapi.get_cart(tg_id)
+    if not cart:
+        cart = create_cart(tg_id)
     cart_id = cart['documentId']
 
     product_cart_data = strapi.find_product_cart(cart_id, product_id)
@@ -74,11 +76,13 @@ def put_product_in_basket(update, product_id):
 
 def clear_products_cart(update):
     tg_id = update.effective_chat.id
-    cart = get_or_create_cart(tg_id)
+    cart = strapi.get_cart(tg_id)
+    if not cart:
+        cart = create_cart(tg_id)
     cart_id = cart['documentId']
 
     strapi.delete_cart(cart_id)
-    get_or_create_cart(tg_id)
+    create_cart(tg_id)
 
 
 def set_user_in_cart(update):
@@ -87,7 +91,9 @@ def set_user_in_cart(update):
     user_name = db.get('name')
     user_email = db.get('email')
 
-    cart = get_or_create_cart(tg_id)
+    cart = strapi.get_cart(tg_id)
+    if not cart:
+        cart = create_cart(tg_id)
     cart_id = cart['documentId']
 
     user_data = strapi.find_user(user_name, user_email)
@@ -117,7 +123,7 @@ def get_product_details(product_id):
     }
 
 
-def callback_cart(update, context):
+def handle_cart_actions(update, context):
     update.callback_query.message.delete()
     if update.callback_query.data == 'back':
         update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
@@ -133,7 +139,7 @@ def callback_cart(update, context):
         return 'WAITING_EMAIL'
 
 
-def callback_product(update, context):
+def handle_product_actions(update, context):
     if update.callback_query.data == 'back':
         update.callback_query.message.delete()
         update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
@@ -175,7 +181,7 @@ def handle_name(update, context):
     return 'HANDLE_MENU'
 
 
-def button(update, context):
+def handle_menu_selection(update, context):
     query = update.callback_query
     query.answer()
     tg_id = update.effective_chat.id
@@ -194,7 +200,9 @@ def button(update, context):
 
 def start(update, context):
     tg_id = update.effective_chat.id
-    get_or_create_cart(tg_id)
+    cart = strapi.get_cart(tg_id)
+    if not cart:
+        create_cart(tg_id)
     update.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
     return 'HANDLE_MENU'
 
@@ -216,9 +224,9 @@ def handle_users_reply(update, context):
 
     states_functions = {
         'START': start,
-        'HANDLE_MENU': button,
-        'HANDLE_DESCRIPTION': callback_product,
-        'HANDLE_CART': callback_cart,
+        'HANDLE_MENU': handle_menu_selection,
+        'HANDLE_DESCRIPTION': handle_product_actions,
+        'HANDLE_CART': handle_cart_actions,
         'WAITING_EMAIL': handle_email,
         'WRITE_NAME': handle_name
     }
@@ -231,17 +239,17 @@ def handle_users_reply(update, context):
 
 
 def get_database_connection():
-    global _database
-    if _database is None:
-        database_host = os.getenv('DATABASE_HOST')
-        database_port = int(os.getenv('DATABASE_PORT'))
-        _database = redis.Redis(host=database_host, port=database_port, db=0, decode_responses=True)
-    return _database
+    global DATABASE
+    if DATABASE is None:
+        database_host = os.environ['DATABASE_HOST']
+        database_port = int(os.environ['DATABASE_PORT'])
+        DATABASE = redis.Redis(host=database_host, port=database_port, db=0, decode_responses=True)
+    return DATABASE
 
 
 def main():
     load_dotenv(override=True)
-    token = os.getenv('TELEGRAM_TOKEN')
+    token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(token)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
