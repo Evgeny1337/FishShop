@@ -18,8 +18,8 @@ def create_product_text(products):
     return text
 
 
-def create_products_keyboard():
-    products = strapi.get_products()
+def create_products_keyboard(service_url):
+    products = strapi.get_products(service_url)
     keyboard = [[InlineKeyboardButton(p['title'], callback_data=p['id'])] for p in products]
     keyboard.append([InlineKeyboardButton('🛒 Корзина', callback_data='cart')])
     return InlineKeyboardMarkup(keyboard)
@@ -43,61 +43,60 @@ def create_cart_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def create_cart(tg_id):
-    cart = strapi.create_cart(tg_id)['data']
+def create_cart(tg_id, service_url):
+    cart = strapi.create_cart(tg_id, service_url)['data']
     return cart
 
 
-def get_cart_products(tg_id):
-    cart = strapi.get_cart(tg_id)
+def get_cart_products(tg_id, service_url):
+    cart = strapi.get_cart(tg_id, service_url)
     if not cart:
-        cart = create_cart(tg_id)
+        cart = create_cart(tg_id, service_url)
     cart_id = cart['documentId']
-    return strapi.get_cart_products(cart_id)
+    return strapi.get_cart_products(cart_id, service_url)
 
 
-def put_product_in_basket(update, product_id):
+def put_product_in_basket(update, product_id, service_url):
     tg_id = update.chat_id
-    cart = strapi.get_cart(tg_id)
+    cart = strapi.get_cart(tg_id, service_url)
     if not cart:
-        cart = create_cart(tg_id)
+        cart = create_cart(tg_id, service_url)
     cart_id = cart['documentId']
 
-    product_cart_data = strapi.find_product_cart(cart_id, product_id)
+    product_cart_data = strapi.find_product_cart(cart_id, product_id, service_url)
 
     amount = product_cart_data[0]['amount'] + 1 if product_cart_data else 1
     data = {'data': {"cart": cart_id, "products": [product_id], "amount": amount}}
 
     if product_cart_data:
-        strapi.update_product_cart(product_cart_data[0]['documentId'], data)
+        strapi.update_product_cart(product_cart_data[0]['documentId'], data, service_url)
     else:
-        strapi.create_product_cart(data)
+        strapi.create_product_cart(data, service_url)
 
 
-def clear_products_cart(update):
+def clear_products_cart(update, service_url):
     tg_id = update.effective_chat.id
-    cart = strapi.get_cart(tg_id)
+    cart = strapi.get_cart(tg_id, service_url)
     if not cart:
-        cart = create_cart(tg_id)
+        cart = create_cart(tg_id,service_url)
     cart_id = cart['documentId']
 
-    strapi.delete_cart(cart_id)
-    create_cart(tg_id)
+    strapi.delete_cart(cart_id, service_url)
+    create_cart(tg_id, service_url)
 
 
-def set_user_in_cart(update):
+def set_user_in_cart(update, user_password, service_url):
     tg_id = update.effective_chat.id
     db = get_database_connection()
     user_name = db.get('name')
     user_email = db.get('email')
 
-    cart = strapi.get_cart(tg_id)
+    cart = strapi.get_cart(tg_id, service_url)
     if not cart:
-        cart = create_cart(tg_id)
+        cart = create_cart(tg_id, service_url)
     cart_id = cart['documentId']
 
-    user_data = strapi.find_user(user_name, user_email)
-
+    user_data = strapi.find_user(user_name, user_email, service_url)
     if not user_data:
         user_data = {
             "email": user_email,
@@ -105,18 +104,18 @@ def set_user_in_cart(update):
             "confirmed": True,
             "blocked": False,
             "role": 1,
-            "password": 'Evgeny-8426'
+            "password": user_password
         }
-        user = strapi.create_user(user_data)
+        user = strapi.create_user(user_data, service_url)
 
         cart_data = {"data": {"users_permissions_users": user['id']}}
-        strapi.update_cart(cart_id, cart_data)
+        strapi.update_cart(cart_id, cart_data, service_url)
 
 
-def get_product_details(product_id):
-    product_data = strapi.get_product_details(product_id)
+def get_product_details(product_id, service_url):
+    product_data = strapi.get_product_details(product_id, service_url)
     img_url = product_data['Picture']['formats']['medium']['url']
-    img = strapi.get_image(img_url)
+    img = strapi.get_image(img_url, service_url)
     return {
         "description": f"{product_data['Title']} - {product_data['Price']}р.\n{product_data['Description']}",
         "img": img
@@ -125,12 +124,13 @@ def get_product_details(product_id):
 
 def handle_cart_actions(update, context):
     update.callback_query.message.delete()
+    service_url = context.bot_data['service_url']
     if update.callback_query.data == 'back':
-        update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
+        update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard(service_url))
         return 'HANDLE_MENU'
     if update.callback_query.data == 'clear':
-        clear_products_cart(update)
-        products = get_cart_products(update.callback_query.message.chat.id)
+        clear_products_cart(update,service_url)
+        products = get_cart_products(update.callback_query.message.chat.id,service_url)
         update.callback_query.message.reply_text(text=create_product_text(products),
                                                  reply_markup=create_cart_keyboard())
         return 'HANDLE_CART'
@@ -140,19 +140,19 @@ def handle_cart_actions(update, context):
 
 
 def handle_product_actions(update, context):
+    service_url = context.bot_data['service_url']
     if update.callback_query.data == 'back':
         update.callback_query.message.delete()
-        update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
+        update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard(service_url))
         return 'HANDLE_MENU'
     if update.callback_query.data.startswith('put'):
-        update.callback_query.message.delete()
         product_id = update.callback_query.data.split('_')[1]
-        put_product_in_basket(update.callback_query.message, product_id)
-        update.callback_query.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
-        return 'HANDLE_MENU'
+        put_product_in_basket(update.callback_query.message, product_id, service_url)
+        update.callback_query.answer("Товар добавлен в корзину")
+        return 'HANDLE_DESCRIPTION'
     if update.callback_query.data == 'cart':
         update.callback_query.message.delete()
-        products = get_cart_products(update.callback_query.message.chat.id)
+        products = get_cart_products(update.callback_query.message.chat.id, service_url)
         update.callback_query.message.reply_text(text=create_product_text(products),
                                                  reply_markup=create_cart_keyboard())
         return 'HANDLE_CART'
@@ -171,13 +171,15 @@ def handle_email(update, context):
 
 def handle_name(update, context):
     db = get_database_connection()
+    service_url = context.bot_data['service_url']
     update.message.delete()
     if not update.message.text:
         update.message.reply_text(text='Введите свое имя')
         return 'WRITE_NAME'
     db.set('name', update.message.text)
-    set_user_in_cart(update)
-    update.message.reply_text(text='С вами свяжется продавец', reply_markup=create_products_keyboard())
+    user_password = context.bot_data['user_password']
+    set_user_in_cart(update,user_password,service_url)
+    update.message.reply_text(text='С вами свяжется продавец', reply_markup=create_products_keyboard(service_url))
     return 'HANDLE_MENU'
 
 
@@ -185,13 +187,14 @@ def handle_menu_selection(update, context):
     query = update.callback_query
     query.answer()
     tg_id = update.effective_chat.id
+    service_url = context.bot_data['service_url']
     if query.data == 'cart':
         query.message.delete()
-        products = get_cart_products(tg_id)
+        products = get_cart_products(tg_id,service_url)
         query.message.reply_text(text=create_product_text(products), reply_markup=create_cart_keyboard())
         return 'HANDLE_CART'
 
-    product_data = get_product_details(query.data)
+    product_data = get_product_details(query.data, service_url)
     query.message.delete()
     context.bot.send_photo(chat_id=tg_id, photo=product_data['img'], caption=product_data['description'],
                            reply_markup=create_back_keyboard(query.data))
@@ -199,11 +202,12 @@ def handle_menu_selection(update, context):
 
 
 def start(update, context):
+    service_url = context.bot_data['service_url']
     tg_id = update.effective_chat.id
-    cart = strapi.get_cart(tg_id)
+    cart = strapi.get_cart(tg_id,service_url)
     if not cart:
-        create_cart(tg_id)
-    update.message.reply_text(text='Привет!', reply_markup=create_products_keyboard())
+        create_cart(tg_id, service_url)
+    update.message.reply_text(text='Привет!', reply_markup=create_products_keyboard(service_url))
     return 'HANDLE_MENU'
 
 
@@ -252,6 +256,8 @@ def main():
     token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(token)
     dispatcher = updater.dispatcher
+    dispatcher.bot_data['service_url'] = os.environ['SERVICE_URL']
+    dispatcher.bot_data['user_password'] = os.getenv('USER_PASSWORD','6379')
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
     dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
     dispatcher.add_handler(CommandHandler('start', handle_users_reply))
