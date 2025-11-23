@@ -85,9 +85,8 @@ def clear_products_cart(update, service_url):
     create_cart(tg_id, service_url)
 
 
-def set_user_in_cart(update, user_password, service_url):
+def set_user_in_cart(update, user_password, service_url, db):
     tg_id = update.effective_chat.id
-    db = get_database_connection()
     user_name = db.get('name')
     user_email = db.get('email')
 
@@ -159,7 +158,7 @@ def handle_product_actions(update, context):
 
 
 def handle_email(update, context):
-    db = get_database_connection()
+    db = context.bot_data['db_connection']
     update.message.delete()
     if not update.message.text:
         update.message.reply_text(text='Введите свою почту')
@@ -170,7 +169,7 @@ def handle_email(update, context):
 
 
 def handle_name(update, context):
-    db = get_database_connection()
+    db = context.bot_data['db_connection']
     service_url = context.bot_data['service_url']
     update.message.delete()
     if not update.message.text:
@@ -178,7 +177,7 @@ def handle_name(update, context):
         return 'WRITE_NAME'
     db.set('name', update.message.text)
     user_password = context.bot_data['user_password']
-    set_user_in_cart(update,user_password,service_url)
+    set_user_in_cart(update,user_password,service_url, db)
     update.message.reply_text(text='С вами свяжется продавец', reply_markup=create_products_keyboard(service_url))
     return 'HANDLE_MENU'
 
@@ -255,9 +254,11 @@ def main():
     load_dotenv(override=True)
     token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(token)
+    db_connection = get_database_connection()
     dispatcher = updater.dispatcher
     dispatcher.bot_data['service_url'] = os.environ['SERVICE_URL']
     dispatcher.bot_data['user_password'] = os.getenv('USER_PASSWORD','6379')
+    dispatcher.bot_data['db_connection'] = db_connection
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
     dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
     dispatcher.add_handler(CommandHandler('start', handle_users_reply))
